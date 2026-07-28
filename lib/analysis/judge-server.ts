@@ -7,8 +7,13 @@ import {
   type CommitJudgment,
   type JudgeCommitInput,
 } from "@/lib/analysis/judge";
+import { judgeCommitWithProvider, type LLMSelection } from "@/lib/llm/providers";
 
-export async function judgeCommitOnServer(input: JudgeCommitInput): Promise<CommitJudgment> {
+export async function judgeCommitOnServer(input: JudgeCommitInput, selection: LLMSelection): Promise<CommitJudgment> {
+  if (selection.provider !== "openai") {
+    return judgeCommitWithProvider(input, selection);
+  }
+
   const apiKey = process.env.OPENAI_API_KEY;
 
   if (!apiKey) {
@@ -23,5 +28,5 @@ export async function judgeCommitOnServer(input: JudgeCommitInput): Promise<Comm
         return { output_text: response.output_text };
       },
     },
-  });
+  }, selection.model);
 }

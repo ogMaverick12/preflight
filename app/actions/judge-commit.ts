@@ -7,5 +7,5 @@ import {
 import { judgeCommitOnServer } from "@/lib/analysis/judge-server";
 
 export async function judgeCommit(input: JudgeCommitInput): Promise<CommitJudgment> {
-  return judgeCommitOnServer(input);
+  return judgeCommitOnServer(input, { provider: "openai", model: "gpt-5-mini" });
 }

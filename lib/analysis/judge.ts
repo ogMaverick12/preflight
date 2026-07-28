@@ -69,9 +69,10 @@ For rationale, write one paragraph of at most two sentences and 55 words. Lead w
 export async function judgeCommitWithClient(
   input: JudgeCommitInput,
   client: JudgeClient,
+  model = "gpt-5-mini",
 ): Promise<CommitJudgment> {
   const response = await client.responses.create({
-    model: "gpt-5-mini",
+    model,
     temperature: 0.2,
     input: [
       { role: "system", content: JUDGE_SYSTEM_PROMPT },

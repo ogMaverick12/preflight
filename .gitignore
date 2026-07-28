@@ -1,7 +1,17 @@
 node_modules/
 .next/
+
+# Environment files and local deployment metadata
 .env*
 !.env.example
+.vercel/
+
+# Private credentials and certificates
+*.key
+*.pem
+*.p12
+*.pfx
+
 npm-debug.log*
 .playwright-mcp/
 preflight-*.png

@@ -2,6 +2,7 @@ import { formatServerSentEvent } from "@/lib/api/sse";
 import { GitHubIngestionError, parsePublicGitHubRepoUrl } from "@/lib/github/ingestion";
 import { analyzeRecentRepo } from "@/lib/pipeline/analyze-repo";
 import { createAnalyzeRepoDependencies } from "@/lib/pipeline/runtime";
+import { parseLLMSelection } from "@/lib/llm/providers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,6 +10,7 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
   const repoUrl = body && typeof body.repoUrl === "string" ? body.repoUrl : "";
+  let selection;
 
   try {
     parsePublicGitHubRepoUrl(repoUrl);
@@ -19,9 +21,18 @@ export async function POST(request: Request) {
     );
   }
 
+  try {
+    selection = parseLLMSelection(body?.llm);
+  } catch (error) {
+    return Response.json(
+      { error: error instanceof Error ? error.message : "Choose a configured LLM provider and model before analysis." },
+      { status: 400 },
+    );
+  }
+
   let dependencies;
   try {
-    dependencies = createAnalyzeRepoDependencies();
+    dependencies = createAnalyzeRepoDependencies(selection);
   } catch (error) {
     return Response.json(
       { error: error instanceof Error ? error.message : "Unable to start repository analysis." },

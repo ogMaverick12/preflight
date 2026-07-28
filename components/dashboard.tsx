@@ -35,6 +35,16 @@ type CommitDetail = {
   diffText: string;
 };
 
+type LLMProvider = {
+  id: "openai" | "gemini" | "grok" | "nvidia-nim" | "openrouter";
+  name: string;
+};
+
+type LLMModel = {
+  id: string;
+  name: string;
+};
+
 const verdictIcons = {
   check: Check,
   alert: AlertTriangle,
@@ -50,10 +60,70 @@ export function Dashboard({ initialCommits = [] }: { initialCommits?: DashboardC
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [providers, setProviders] = useState<LLMProvider[]>([]);
+  const [models, setModels] = useState<LLMModel[]>([]);
+  const [providerId, setProviderId] = useState<LLMProvider["id"] | "">("");
+  const [modelId, setModelId] = useState("");
+  const [providerError, setProviderError] = useState<string | null>(null);
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
   const tileRefs = useRef(new Map<string, HTMLButtonElement>());
   const isCompactDetail = useCompactDetailPanel();
 
   const trustScore = useMemo(() => getTrustScore(commits.map((commit) => commit.judgment)), [commits]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    fetch("/api/llm/providers", { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Could not load configured LLM providers.");
+        return response.json() as Promise<{ providers?: LLMProvider[] }>;
+      })
+      .then(({ providers: providerPayload }) => {
+        const availableProviders = Array.isArray(providerPayload) ? providerPayload : [];
+        setProviders(availableProviders);
+        setProviderId((current) => current && availableProviders.some((provider) => provider.id === current) ? current : availableProviders[0]?.id ?? "");
+      })
+      .catch((loadError: unknown) => {
+        if ((loadError as { name?: string }).name !== "AbortError") setProviderError("Could not load configured LLM providers.");
+      });
+
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    if (!providerId) {
+      setModels([]);
+      setModelId("");
+      return;
+    }
+
+    const controller = new AbortController();
+    setIsLoadingModels(true);
+    setProviderError(null);
+
+    fetch(`/api/llm/providers/${providerId}/models`, { signal: controller.signal })
+      .then(async (response) => {
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error ?? "Could not load provider models.");
+        return payload as { models?: LLMModel[] };
+      })
+      .then(({ models: modelPayload }) => {
+        const availableModels = Array.isArray(modelPayload) ? modelPayload : [];
+        setModels(availableModels);
+        setModelId((current) => current && availableModels.some((model) => model.id === current) ? current : availableModels[0]?.id ?? "");
+      })
+      .catch((loadError: unknown) => {
+        if ((loadError as { name?: string }).name !== "AbortError") {
+          setModels([]);
+          setModelId("");
+          setProviderError(loadError instanceof Error ? loadError.message : "Could not load provider models.");
+        }
+      })
+      .finally(() => setIsLoadingModels(false));
+
+    return () => controller.abort();
+  }, [providerId]);
 
   useEffect(() => {
     if (!selectedCommit) return;
@@ -79,6 +149,10 @@ export function Dashboard({ initialCommits = [] }: { initialCommits?: DashboardC
   async function startAnalysis(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!repoUrl.trim() || isAnalyzing) return;
+    if (!providerId || !modelId) {
+      setError("Choose a configured LLM provider and model before analysis.");
+      return;
+    }
 
     setCommits([]);
     setSelectedCommit(null);
@@ -90,7 +164,7 @@ export function Dashboard({ initialCommits = [] }: { initialCommits?: DashboardC
       const response = await fetch("/api/repos", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repoUrl }),
+        body: JSON.stringify({ repoUrl, llm: { provider: providerId, model: modelId } }),
       });
 
       if (!response.ok || !response.body) {
@@ -152,13 +226,29 @@ export function Dashboard({ initialCommits = [] }: { initialCommits?: DashboardC
               autoComplete="url"
               required
             />
-            <button type="submit" disabled={isAnalyzing}>
+            <button type="submit" disabled={isAnalyzing || !providerId || !modelId}>
               {isAnalyzing ? <LoaderCircle className="spin" size={17} /> : <ScanLine size={17} />}
               <span>{isAnalyzing ? "Analyzing" : "Analyze"}</span>
             </button>
           </div>
+          <div className="llm-picker" aria-label="LLM selection">
+            <label>
+              LLM provider
+              <select value={providerId} onChange={(event) => setProviderId(event.target.value as LLMProvider["id"])} disabled={providers.length === 0}>
+                {providers.length === 0 ? <option value="">No configured providers</option> : null}
+                {providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}</option>)}
+              </select>
+            </label>
+            <label>
+              Model
+              <select value={modelId} onChange={(event) => setModelId(event.target.value)} disabled={!providerId || isLoadingModels || models.length === 0}>
+                {!modelId ? <option value="">{isLoadingModels ? "Loading models…" : "No models available"}</option> : null}
+                {models.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}
+              </select>
+            </label>
+          </div>
           <p className="repo-status" aria-live="polite">
-            {isAnalyzing ? "Instrument sweep in progress. Results appear as each check clears." : repoName ?? "Ready for a public repository."}
+            {providerError ?? (providers.length === 0 ? "No LLM provider is configured on this server." : isAnalyzing ? "Instrument sweep in progress. Results appear as each check clears." : repoName ?? "Ready for a public repository.")}
           </p>
         </form>
       </section>

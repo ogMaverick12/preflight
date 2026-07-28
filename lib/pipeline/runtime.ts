@@ -4,18 +4,22 @@ import { runCoverageDelta, runReferenceCheck } from "@/lib/analysis/heuristics";
 import { judgeCommitOnServer } from "@/lib/analysis/judge-server";
 import { fetchPublicRepoCommit, listPublicRepoCommitRefs, parsePublicGitHubRepoUrl } from "@/lib/github/ingestion";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import type { LLMSelection } from "@/lib/llm/providers";
 import type { AnalyzeRepoDependencies, CompletedCommitAnalysis, PipelineStore } from "@/lib/pipeline/analyze-repo";
 
-export function createAnalyzeRepoDependencies(): AnalyzeRepoDependencies {
+export function createAnalyzeRepoDependencies(selection: LLMSelection): AnalyzeRepoDependencies {
   return {
     listCommitRefs: (repoUrl, limit) => listPublicRepoCommitRefs(repoUrl, { limit }),
     fetchCommit: fetchPublicRepoCommit,
-    analyzeCommit: analyzeCommit,
+    analyzeCommit: (commit) => analyzeCommit(commit, selection),
     store: createSupabasePipelineStore(),
   };
 }
 
-async function analyzeCommit(commit: Parameters<AnalyzeRepoDependencies["analyzeCommit"]>[0]): Promise<CompletedCommitAnalysis> {
+async function analyzeCommit(
+  commit: Parameters<AnalyzeRepoDependencies["analyzeCommit"]>[0],
+  selection: LLMSelection,
+): Promise<CompletedCommitAnalysis> {
   const referenceCheck = runReferenceCheck({ diffText: commit.diffText, visibleSymbols: [] });
   const coverageDelta = runCoverageDelta({ changedFiles: commit.changedFiles });
   const judgment = await judgeCommitOnServer({
@@ -23,9 +27,9 @@ async function analyzeCommit(commit: Parameters<AnalyzeRepoDependencies["analyze
     diffText: commit.diffText,
     referenceCheck,
     coverageDelta,
-  });
+  }, selection);
 
-  return { judgment, referenceCheck, coverageDelta };
+  return { judgment, referenceCheck, coverageDelta, llmSelection: selection };
 }
 
 function createSupabasePipelineStore(): PipelineStore {
@@ -73,7 +77,7 @@ function createSupabasePipelineStore(): PipelineStore {
           intent_match: analysis.judgment.intent_match,
           coverage_delta: analysis.coverageDelta,
           rationale: analysis.judgment.rationale,
-          raw_model_output: analysis.judgment,
+          raw_model_output: { ...analysis.judgment, llm: analysis.llmSelection },
         },
         { onConflict: "commit_id" },
       );

@@ -1,6 +1,7 @@
 import type { CoverageDeltaResult, ReferenceCheckResult } from "@/lib/analysis/heuristics";
 import type { CommitJudgment } from "@/lib/analysis/judge";
 import type { IngestedCommit } from "@/lib/github/ingestion";
+import type { LLMSelection } from "@/lib/llm/providers";
 
 export interface CommitReference {
   sha: string;
@@ -10,6 +11,7 @@ export interface CompletedCommitAnalysis {
   judgment: CommitJudgment;
   referenceCheck: ReferenceCheckResult;
   coverageDelta: CoverageDeltaResult;
+  llmSelection?: LLMSelection;
 }
 
 export interface PipelineStore {
