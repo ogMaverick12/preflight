@@ -138,16 +138,16 @@ async function sendChatCompletion(
   useJsonMode: boolean,
 ) {
   const baseUrl = getBaseUrl(provider);
-  const url = provider === "gemini"
-    ? `${baseUrl}/chat/completions?key=${encodeURIComponent(apiKey)}`
-    : `${baseUrl}/chat/completions`;
+  const url = `${baseUrl}/chat/completions`;
 
   const headers: Record<string, string> = {
     Accept: "application/json",
     "Content-Type": "application/json",
   };
 
-  if (provider !== "gemini") {
+  if (provider === "gemini") {
+    headers["x-goog-api-key"] = apiKey;
+  } else {
     headers.Authorization = `Bearer ${apiKey}`;
   }
 
