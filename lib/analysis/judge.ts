@@ -89,12 +89,12 @@ export async function judgeCommitWithClient(
     text: { format: JUDGE_RESPONSE_FORMAT },
   });
 
-  return parseCommitJudgment(response.output_text);
+  return parseCommitJudgment(response.output_text, "OpenAI");
 }
 
-export function parseCommitJudgment(output: string): CommitJudgment {
+export function parseCommitJudgment(output: string, providerName = "LLM"): CommitJudgment {
   try {
-    const value: unknown = JSON.parse(output);
+    const value: unknown = JSON.parse(stripJsonCodeFence(output));
 
     if (
       !isRecord(value) ||
@@ -116,8 +116,16 @@ export function parseCommitJudgment(output: string): CommitJudgment {
       rationale: value.rationale,
     };
   } catch {
-    throw new Error("OpenAI returned an invalid commit judgment.");
+    throw new Error(`${providerName} returned an invalid commit judgment.`);
   }
+}
+
+function stripJsonCodeFence(output: string) {
+  return output
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

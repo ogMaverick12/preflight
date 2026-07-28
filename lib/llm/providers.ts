@@ -110,7 +110,7 @@ export async function judgeCommitWithProvider(
   const content = getChatContent(payload);
   if (!content) throw new Error(`${providerConfigs[selection.provider].name} returned an empty judgment.`);
 
-  return parseCommitJudgment(content);
+  return parseCommitJudgment(content, providerConfigs[selection.provider].name);
 }
 
 async function sendChatCompletion(

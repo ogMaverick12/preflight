@@ -56,4 +56,20 @@ describe("multi-provider LLM adapter", () => {
       }),
     );
   });
+
+  it("accepts a valid Gemini judgment wrapped in a JSON code fence", async () => {
+    vi.stubEnv("GEMINI_API_KEY", "test-key");
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: `\`\`\`json
+${JSON.stringify({
+  verdict: "clear",
+  intent_match: { matches: true, explanation: "The diff matches the message." },
+  rationale: "Clear because the change is focused and the supplied checks found no material concern.",
+})}
+\`\`\`` } }],
+    })));
+
+    await expect(judgeCommitWithProvider(input, { provider: "gemini", model: "gemini-2.5-flash" }, fetcher))
+      .resolves.toMatchObject({ verdict: "clear" });
+  });
 });
