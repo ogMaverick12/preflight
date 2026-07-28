@@ -57,19 +57,27 @@ describe("multi-provider LLM adapter", () => {
     );
   });
 
-  it("accepts a valid Gemini judgment wrapped in a JSON code fence", async () => {
+  it("accepts a valid Gemini judgment from the native API", async () => {
     vi.stubEnv("GEMINI_API_KEY", "test-key");
     const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      choices: [{ message: { content: `\`\`\`json
-${JSON.stringify({
-  verdict: "clear",
-  intent_match: { matches: true, explanation: "The diff matches the message." },
-  rationale: "Clear because the change is focused and the supplied checks found no material concern.",
-})}
-\`\`\`` } }],
+      candidates: [{
+        content: {
+          parts: [{ text: JSON.stringify({
+            verdict: "clear",
+            intent_match: { matches: true, explanation: "The diff matches the message." },
+            rationale: "Clear because the change is focused and the supplied checks found no material concern.",
+          }) }],
+        },
+      }],
     })));
 
     await expect(judgeCommitWithProvider(input, { provider: "gemini", model: "gemini-2.5-flash" }, fetcher))
       .resolves.toMatchObject({ verdict: "clear" });
+    expect(fetcher).toHaveBeenCalledWith(
+      expect.stringContaining("generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"),
+      expect.objectContaining({
+        body: expect.stringContaining('"responseMimeType":"application/json"'),
+      }),
+    );
   });
 });
