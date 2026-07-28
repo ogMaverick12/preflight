@@ -84,6 +84,10 @@ export async function judgeCommitWithProvider(
   const apiKey = getApiKey(selection.provider);
   if (!apiKey) throw new Error(`${providerConfigs[selection.provider].name} is not configured on this server.`);
 
+  if (selection.provider === "gemini") {
+    return judgeCommitWithGemini(input, selection, apiKey, fetcher);
+  }
+
   const request = {
     model: selection.model,
     temperature: 0.2,
@@ -130,6 +134,49 @@ export async function judgeCommitWithProvider(
   throw new Error(`${providerConfigs[selection.provider].name} returned an empty judgment.`);
 }
 
+async function judgeCommitWithGemini(
+  input: JudgeCommitInput,
+  selection: LLMSelection,
+  apiKey: string,
+  fetcher: Fetcher,
+): Promise<CommitJudgment> {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${selection.model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+  const response = await fetcher(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      systemInstruction: {
+        parts: [{ text: JUDGE_SYSTEM_PROMPT }],
+      },
+      contents: [
+        {
+          role: "user",
+          parts: [{
+            text: JSON.stringify({
+              commit_message: input.commitMessage,
+              diff: input.diffText,
+              reference_check: input.referenceCheck,
+              coverage_delta: input.coverageDelta,
+            }),
+          }],
+        },
+      ],
+      generationConfig: {
+        temperature: 0.2,
+        responseMimeType: "application/json",
+      },
+    }),
+  });
+
+  const payload = await parseResponse(response, selection.provider);
+
+  const text = extractGeminiContent(payload);
+  if (!text) throw new Error(`${providerConfigs[selection.provider].name} returned an empty judgment.`);
+
+  return parseCommitJudgment(text, providerConfigs[selection.provider].name);
+}
+
 async function sendChatCompletion(
   request: Record<string, unknown>,
   provider: LLMProviderId,
@@ -137,28 +184,16 @@ async function sendChatCompletion(
   fetcher: Fetcher,
   useJsonMode: boolean,
 ) {
-  const baseUrl = getBaseUrl(provider);
-  const url = `${baseUrl}/chat/completions`;
-
-  const headers: Record<string, string> = {
-    Accept: "application/json",
-    "Content-Type": "application/json",
-  };
-
-  if (provider === "gemini") {
-    headers["x-goog-api-key"] = apiKey;
-  } else {
-    headers.Authorization = `Bearer ${apiKey}`;
-  }
-
-  const skipJsonMode = provider === "gemini";
-
-  return fetcher(url, {
+  return fetcher(`${getBaseUrl(provider)}/chat/completions`, {
     method: "POST",
-    headers,
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify({
       ...request,
-      ...(useJsonMode && !skipJsonMode ? { response_format: { type: "json_object" } } : {}),
+      ...(useJsonMode ? { response_format: { type: "json_object" } } : {}),
     }),
   });
 }
@@ -189,6 +224,17 @@ function getChatContent(payload: unknown): string | null {
     return message.content.filter(isRecord).map((part) => typeof part.text === "string" ? part.text : "").join("");
   }
   return null;
+}
+
+function extractGeminiContent(payload: unknown): string | null {
+  if (!isRecord(payload)) return null;
+  const candidates = payload.candidates;
+  if (!Array.isArray(candidates) || !isRecord(candidates[0])) return null;
+  const content = candidates[0].content;
+  if (!isRecord(content)) return null;
+  const parts = content.parts;
+  if (!Array.isArray(parts) || !isRecord(parts[0])) return null;
+  return typeof parts[0].text === "string" ? parts[0].text : null;
 }
 
 function getApiKey(provider: LLMProviderId): string | undefined {
