@@ -102,15 +102,32 @@ export async function judgeCommitWithProvider(
   };
 
   let response = await sendChatCompletion(request, selection.provider, apiKey, fetcher, true);
+  let usedJsonMode = true;
   if (!response.ok && (response.status === 400 || response.status === 422)) {
     response = await sendChatCompletion(request, selection.provider, apiKey, fetcher, false);
+    usedJsonMode = false;
   }
 
   const payload = await parseResponse(response, selection.provider);
   const content = getChatContent(payload);
-  if (!content) throw new Error(`${providerConfigs[selection.provider].name} returned an empty judgment.`);
 
-  return parseCommitJudgment(content, providerConfigs[selection.provider].name);
+  if (content) {
+    try {
+      return parseCommitJudgment(content, providerConfigs[selection.provider].name);
+    } catch {
+      if (usedJsonMode) {
+        response = await sendChatCompletion(request, selection.provider, apiKey, fetcher, false);
+        const retryPayload = await parseResponse(response, selection.provider);
+        const retryContent = getChatContent(retryPayload);
+        if (retryContent) {
+          return parseCommitJudgment(retryContent, providerConfigs[selection.provider].name);
+        }
+      }
+      throw new Error(`${providerConfigs[selection.provider].name} returned an invalid commit judgment.`);
+    }
+  }
+
+  throw new Error(`${providerConfigs[selection.provider].name} returned an empty judgment.`);
 }
 
 async function sendChatCompletion(
@@ -120,26 +137,44 @@ async function sendChatCompletion(
   fetcher: Fetcher,
   useJsonMode: boolean,
 ) {
-  return fetcher(`${getBaseUrl(provider)}/chat/completions`, {
+  const baseUrl = getBaseUrl(provider);
+  const url = provider === "gemini"
+    ? `${baseUrl}/chat/completions?key=${encodeURIComponent(apiKey)}`
+    : `${baseUrl}/chat/completions`;
+
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+  };
+
+  if (provider !== "gemini") {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
+
+  const skipJsonMode = provider === "gemini";
+
+  return fetcher(url, {
     method: "POST",
-    headers: {
-      Accept: "application/json",
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
+    headers,
     body: JSON.stringify({
       ...request,
-      ...(useJsonMode ? { response_format: { type: "json_object" } } : {}),
+      ...(useJsonMode && !skipJsonMode ? { response_format: { type: "json_object" } } : {}),
     }),
   });
 }
 
 async function parseResponse(response: Response, provider: LLMProviderId): Promise<unknown> {
-  const payload = await response.json().catch(() => null);
+  const text = await response.text();
+  let payload: unknown;
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    payload = { error: { message: `HTTP ${response.status}: ${text.slice(0, 200) || "(empty body)"}` } };
+  }
   if (!response.ok) {
     const message = isRecord(payload) && isRecord(payload.error) && typeof payload.error.message === "string"
       ? payload.error.message
-      : "The provider request failed.";
+      : `HTTP ${response.status}: The provider request failed.`;
     throw new Error(`${providerConfigs[provider].name}: ${message}`);
   }
   return payload;
