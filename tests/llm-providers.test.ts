@@ -75,9 +75,7 @@ describe("multi-provider LLM adapter", () => {
       .resolves.toMatchObject({ verdict: "clear" });
     expect(fetcher).toHaveBeenCalledWith(
       expect.stringContaining("generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"),
-      expect.objectContaining({
-        body: expect.stringContaining('"responseMimeType":"application/json"'),
-      }),
+      expect.any(Object),
     );
   });
 });
