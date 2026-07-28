@@ -36,6 +36,11 @@ export interface IngestPublicRepoOptions {
   client?: OctokitClient;
 }
 
+export interface ListPublicRepoCommitOptions {
+  limit?: number;
+  client?: OctokitClient;
+}
+
 export function parsePublicGitHubRepoUrl(repoUrl: string): GitHubRepoIdentifier {
   let parsedUrl: URL;
 
@@ -75,10 +80,19 @@ export function parsePublicGitHubRepoUrl(repoUrl: string): GitHubRepoIdentifier 
 
 export async function ingestPublicRepo(
   repoUrl: string,
-  { limit = 10, client = new Octokit() }: IngestPublicRepoOptions = {},
+  { limit = 20, client = new Octokit() }: IngestPublicRepoOptions = {},
 ): Promise<IngestedCommit[]> {
+  const commits = await listPublicRepoCommitRefs(repoUrl, { limit, client });
+
+  return Promise.all(commits.map((commit) => fetchPublicRepoCommit(repoUrl, commit.sha, { client })));
+}
+
+export async function listPublicRepoCommitRefs(
+  repoUrl: string,
+  { limit = 20, client = new Octokit() }: ListPublicRepoCommitOptions = {},
+): Promise<CommitReference[]> {
   const { owner, repo } = parsePublicGitHubRepoUrl(repoUrl);
-  const perPage = Math.min(Math.max(Math.floor(limit), 1), 10);
+  const perPage = Math.min(Math.max(Math.floor(limit), 1), 20);
 
   try {
     const { data: commitSummaries } = await client.rest.repos.listCommits({
@@ -87,26 +101,36 @@ export async function ingestPublicRepo(
       per_page: perPage,
     });
 
-    return await Promise.all(
-      commitSummaries.map(async (summary) => {
-        const { data: commit } = await client.rest.repos.getCommit({
-          owner,
-          repo,
-          ref: summary.sha,
-        });
+    return commitSummaries.map((commit) => ({ sha: commit.sha }));
+  } catch (error) {
+    throw toGitHubIngestionError(error);
+  }
+}
 
-        return {
-          sha: commit.sha,
-          message: summary.commit.message,
-          author: summary.commit.author?.name ?? summary.author?.login ?? "Unknown author",
-          authorLogin: summary.author?.login ?? null,
-          committedAt: summary.commit.author?.date ?? null,
-          diffUrl: commit.html_url,
-          diffText: commit.files?.flatMap((file) => file.patch ? [file.patch] : []).join("\n\n") ?? "",
-          changedFiles: commit.files?.map((file) => file.filename) ?? [],
-        };
-      }),
-    );
+export interface CommitReference {
+  sha: string;
+}
+
+export async function fetchPublicRepoCommit(
+  repoUrl: string,
+  sha: string,
+  { client = new Octokit() }: Pick<ListPublicRepoCommitOptions, "client"> = {},
+): Promise<IngestedCommit> {
+  const { owner, repo } = parsePublicGitHubRepoUrl(repoUrl);
+
+  try {
+    const { data: commit } = await client.rest.repos.getCommit({ owner, repo, ref: sha });
+
+    return {
+      sha: commit.sha,
+      message: commit.commit.message,
+      author: commit.commit.author?.name ?? commit.author?.login ?? "Unknown author",
+      authorLogin: commit.author?.login ?? null,
+      committedAt: commit.commit.author?.date ?? null,
+      diffUrl: commit.html_url,
+      diffText: commit.files?.flatMap((file) => file.patch ? [file.patch] : []).join("\n\n") ?? "",
+      changedFiles: commit.files?.map((file) => file.filename) ?? [],
+    };
   } catch (error) {
     throw toGitHubIngestionError(error);
   }

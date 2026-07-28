@@ -26,6 +26,11 @@ function createClient(overrides: Record<string, unknown> = {}) {
           data: {
             sha: "abc123",
             html_url: "https://github.com/octocat/Hello-World/commit/abc123",
+            commit: {
+              message: "Add a preflight check",
+              author: { name: "Ada Lovelace", date: "2026-07-28T08:00:00Z" },
+            },
+            author: { login: "ada" },
             files: [
               { filename: "lib/check.ts", status: "modified", patch: "+export const ready = true;" },
             ],
