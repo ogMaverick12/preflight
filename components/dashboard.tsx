@@ -486,8 +486,11 @@ function formatTimestamp(value: string) {
   return new Intl.DateTimeFormat("en", { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
 }
 
-function toActionableError(message: string) {
+export function toActionableError(message: string) {
   const normalized = message.toLowerCase();
+  if (normalized.includes("schema cache") || normalized.includes("could not find the table")) {
+    return "Supabase tables are not set up. Run the migration in supabase/migrations, then try again.";
+  }
   if (normalized.includes("rate limit")) return "GitHub’s public API limit is reached. Wait for the reset, then run the check again.";
   if (normalized.includes("public") || normalized.includes("repository") || normalized.includes("not found")) return "Can’t reach that repo — check the URL and confirm it is public.";
   return message;
