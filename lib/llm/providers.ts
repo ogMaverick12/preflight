@@ -146,19 +146,16 @@ async function judgeCommitWithGemini(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      systemInstruction: {
-        parts: [{ text: JUDGE_SYSTEM_PROMPT }],
-      },
       contents: [
         {
           role: "user",
           parts: [{
-            text: JSON.stringify({
+            text: `${JUDGE_SYSTEM_PROMPT}\n\n${JSON.stringify({
               commit_message: input.commitMessage,
               diff: input.diffText,
               reference_check: input.referenceCheck,
               coverage_delta: input.coverageDelta,
-            }),
+            })}`,
           }],
         },
       ],
